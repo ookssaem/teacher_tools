@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>받아쓰기 문제은행 - ook</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- SheetJS: 엑셀 기능을 위한 라이브러리 추가 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Noto Sans KR', sans-serif; }
+        /* 로딩 애니메이션 */
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #9333ea; /* 보라색 */
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        /* 인쇄 시 설정 */
+        @media print {
+            .no-print { display: none !important; }
+            .print-only { display: block !important; }
+            body { background: white; }
+            .shadow-xl, .border, .bg-purple-50 { box-shadow: none; border: none; background: none; }
+            #resultArea { padding: 0; border: none; }
+            [contenteditable] { outline: none; }
+        }
+
+        /* 수정 가능한 영역 스타일 */
+        .editable:hover {
+            background-color: #f3e8ff;
+            cursor: text;
+            border-radius: 4px;
+            padding: 0 4px;
+        }
+        .editable:focus {
+            background-color: #ffffff;
+            outline: 2px solid #9333ea;
+            border-radius: 4px;
+            padding: 0 4px;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 min-h-screen">
+        
+        <!-- 왼쪽 2/3 영역: 메인 작업창 -->
+        <div class="col-span-2 bg-white p-8 lg:p-12 shadow-xl z-10 flex flex-col h-screen overflow-hidden">
+            
+            <!-- 헤더 영역 -->
+            <div class="flex justify-between items-center mb-6 flex-shrink-0">
+                <!-- [수정됨] 타이틀 변경 -->
+                <h1 class="text-3xl font-bold text-gray-800">
+                    받아쓰기 문제은행 <span class="text-purple-600 text-lg align-top">Dictation</span>
+                </h1>
+                <div class="flex items-center gap-2 no-print">
+                    <button onclick="saveAsHWP()" class="bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1 transition-colors border border-blue-300">
+                        <span>💾</span> HWP 저장
+                    </button>
+                    <div class="w-px h-6 bg-gray-300 mx-1"></div>
+                    <a href="index.html" class="text-gray-400 hover:text-purple-600 text-sm font-bold flex items-center gap-1">
+                        <span>🏠</span> HOME
+                    </a>
+                </div>
+            </div>
+
+            <!-- 1. 설정 입력 영역 (보라색 박스) -->
+            <div class="bg-purple-50 p-6 rounded-2xl border border-purple-100 mb-6 flex-shrink-0 no-print">
+                <div class="flex flex-col gap-4">
+                    
+                    <!-- 1) 엑셀 업로드 -->
+                    <div class="flex items-center gap-4">
+                        <div class="flex-1">
+                            <label class="block text-xs font-bold text-purple-800 mb-1">1. 받아쓰기 원본 업로드 (엑셀 A열)</label>
+                            <div class="flex gap-2">
+                                <input type="file" id="excelInput" accept=".xlsx, .xls" class="hidden" onchange="handleExcelUpload(event)">
+                                <button onclick="document.getElementById('excelInput').click()" class="flex-1 bg-white border border-purple-200 text-purple-700 hover:bg-purple-100 px-4 py-2 rounded-lg text-sm font-bold transition-colors text-left flex items-center gap-2">
+                                    <span>📂</span> <span id="fileName">엑셀 파일 선택...</span>
+                                </button>
+                                <span id="uploadStatus" class="text-xs text-gray-500 self-center"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <!-- 2) 문제 수 -->
+                        <div>
+                            <label class="block text-xs font-bold text-purple-800 mb-1">2. 문제 수</label>
+                            <input type="number" id="qCount" class="w-full p-2 border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500 text-center" value="5" min="1" max="20">
+                        </div>
+                        
+                        <!-- 3) 문제 유형 -->
+                        <div>
+                            <label class="block text-xs font-bold text-purple-800 mb-1">3. 문제 유형</label>
+                            <select id="qType" class="w-full p-2 border border-purple-200 rounded-lg focus:outline-none focus:border-purple-500">
+                                <option value="mixed">🎨 혼합형 (서술형 + 빈칸형)</option>
+                                <option value="correction">✍️ 서술형 (틀린 곳 찾아 고쳐쓰기)</option>
+                                <option value="blank">🧩 빈칸형 (객관식 알맞은 말 고르기)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- 생성 버튼 -->
+                    <button id="generateBtn" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 rounded-xl shadow-md transition-all flex justify-center items-center gap-2 mt-2">
+                        <span>✨ 맞춤법 문제 만들기</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 2. 결과 출력 영역 (스크롤 가능) -->
+            <div id="resultArea" class="flex-1 overflow-y-auto custom-scrollbar border border-gray-200 rounded-xl p-8 bg-white relative">
+                <!-- 초기 안내 -->
+                <div id="emptyState" class="h-full flex flex-col justify-center items-center text-gray-400">
+                    <p class="text-5xl mb-4">📝</p>
+                    <p class="text-lg">받아쓰기 문장을 업로드하고</p>
+                    <p class="text-lg font-bold">[문제 만들기] 버튼을 눌러주세요.</p>
+                </div>
+                
+                <!-- 생성된 문제 컨텐츠 -->
+                <div id="quizContent" class="hidden">
+                    <!-- 제목 (수정 가능) -->
+                    <div class="mb-8 text-center border-b-2 border-black pb-4">
+                        <h2 class="text-3xl font-bold text-gray-900 editable" contenteditable="true">받아쓰기 연습 문제</h2>
+                        <div class="flex justify-center gap-8 mt-2 text-sm text-gray-600">
+                            <p><span class="font-bold">___학년 ___반 ___번</span></p>
+                            <p><span class="font-bold">이름: ____________</span></p>
+                        </div>
+                    </div>
+
+                    <!-- 문제 리스트 -->
+                    <div id="questionsList" class="space-y-10"></div>
+
+                    <!-- 정답지 (화면엔 버튼으로 토글, 인쇄 시 맨 뒤에 나옴) -->
+                    <div class="mt-16 pt-8 border-t-2 border-dashed border-gray-300 print-break-before">
+                        <div class="no-print text-center mb-4">
+                            <button onclick="document.getElementById('answerKey').classList.toggle('hidden')" class="bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-gray-700 transition-colors">
+                                👀 정답 확인하기
+                            </button>
+                        </div>
+                        <div id="answerKey" class="hidden print-only">
+                            <h3 class="text-xl font-bold text-gray-800 mb-4 text-center">📢 정답 및 해설</h3>
+                            <div id="answerList" class="grid grid-cols-1 gap-2 text-sm bg-gray-50 p-4 rounded-lg"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- 오른쪽 1/3 영역: 사이드바 -->
+        <div class="hidden lg:block bg-gray-50 border-l border-gray-200 p-8 h-screen overflow-y-auto no-print">
+            <div class="sticky top-8">
+                
+                <!-- 도움말 -->
+                <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 mb-6">
+                    <h2 class="text-lg font-bold text-gray-800 mb-3 flex items-center gap-2">
+                        <span class="text-purple-500">💡</span> 사용 팁
+                    </h2>
+                    <ul class="list-disc ml-4 space-y-2 text-sm text-gray-600">
+                        <li><strong>수정 기능:</strong> 생성된 문제의 글자를 클릭하면 내용을 직접 고칠 수 있습니다.</li>
+                        <li><strong>엑셀 업로드:</strong> A열에 있는 문장들을 인식합니다.</li>
+                        <li><strong>서술형:</strong> 소리 나는 대로 적은 오류(예: 디집어서)를 찾아 고치는 문제입니다.</li>
+                        <li><strong>빈칸형:</strong> 헷갈리는 맞춤법 중 알맞은 것을 고르는 객관식입니다.</li>
+                    </ul>
+                </div>
+
+                <!-- API Key 설정 (공통) -->
+                <div class="mt-6 pt-6 border-t border-gray-200">
+                    <div class="flex items-center justify-between mb-2">
+                        <h3 class="text-sm font-bold text-gray-700 flex items-center gap-1">
+                            <span>🔑</span> API Key 설정
+                        </h3>
+                        <div class="flex gap-2">
+                            <button onclick="alert('교과평어 페이지의 가이드를 참고해주세요!')" class="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-200 hover:bg-blue-100 font-bold transition-colors">
+                                ❓ 가이드
+                            </button>
+                            <a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-xs text-blue-500 hover:underline">
+                                발급받기 &rarr;
+                            </a>
+                        </div>
+                    </div>
+                    <div class="bg-white p-3 rounded-xl border border-gray-200 shadow-sm">
+                        <div class="flex flex-col gap-2">
+                            <input type="password" id="apiKeyInput" class="w-full border border-gray-300 rounded px-3 py-2 text-xs focus:outline-none focus:border-purple-500" placeholder="AIzaSy... 키 입력">
+                            <button id="saveKeyBtn" class="w-full bg-gray-800 text-white px-3 py-2 rounded text-xs font-bold hover:bg-gray-700 transition-colors">
+                                저장하기
+                            </button>
+                        </div>
+                        <p id="keyStatusMsg" class="text-xs font-bold mt-2 text-center h-4"></p>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- Google Generative AI SDK -->
+    <script type="importmap">
+      {
+        "imports": {
+          "@google/generative-ai": "https://esm.run/@google/generative-ai"
+        }
+      }
+    </script>
+
+    <script type="module">
+        import { GoogleGenerativeAI } from "@google/generative-ai";
+
+        // ==========================================
+        // 0. 공통 함수
+        // ==========================================
+        function showMyAlert(msg) {
+            alert(msg);
+        }
+
+        function isApiKeyValid(key) {
+            return /^[a-zA-Z0-9_\-\.]+$/.test(key);
+        }
+
+        // ==========================================
+        // 1. API 키 관리
+        // ==========================================
+        const apiKeyInput = document.getElementById('apiKeyInput');
+        const saveKeyBtn = document.getElementById('saveKeyBtn');
+        const keyStatusMsg = document.getElementById('keyStatusMsg');
+
+        // 저장된 키 불러오기
+        const savedKey = localStorage.getItem('ook_gemini_api_key');
+        if (savedKey) {
+            if (isApiKeyValid(savedKey)) {
+                apiKeyInput.value = savedKey;
+                keyStatusMsg.innerText = "✅ 저장된 키 로드됨";
+                keyStatusMsg.classList.add("text-green-600");
+            }
+        }
+
+        saveKeyBtn.addEventListener('click', () => {
+            const key = apiKeyInput.value.trim();
+            if (!key || !isApiKeyValid(key)) {
+                showMyAlert("올바른 API 키를 입력해주세요.");
+                return;
+            }
+            localStorage.setItem('ook_gemini_api_key', key);
+            keyStatusMsg.innerText = "✅ 저장된 키 로드됨";
+            keyStatusMsg.classList.add("text-green-600");
+            showMyAlert("저장되었습니다!");
+        });
+
+        function getGenAIModel() {
+            const apiKey = apiKeyInput.value.trim();
+            if (!apiKey) {
+                showMyAlert("오른쪽 사이드바에서 API 키를 입력해주세요!");
+                return null;
+            }
+            try {
+                const genAI = new GoogleGenerativeAI(apiKey);
+                return genAI.getGenerativeModel({ model: "gemini-2.5-flash-preview-09-2025" });
+            } catch (e) {
+                console.error("Model Error:", e);
+                showMyAlert("API 키 오류입니다.");
+                return null;
+            }
+        }
+
+        // ==========================================
+        // [신규] HWP 저장 기능 (HTML -> HWP)
+        // ==========================================
+        window.saveAsHWP = function() {
+            const content = document.getElementById('quizContent');
+            if (content.classList.contains('hidden')) {
+                 showMyAlert("먼저 문제를 생성해주세요!");
+                 return;
+            }
+
+            // 1. 내용 복제 (화면에는 영향 없게)
+            const clone = content.cloneNode(true);
+            
+            // 2. 불필요한 요소 제거 (정답 보기 버튼 등)
+            const buttons = clone.querySelectorAll('button');
+            buttons.forEach(btn => btn.remove());
+            
+            // 3. 정답 영역 보이게 처리 (인쇄/저장 시엔 나와야 함)
+            const answerKey = clone.querySelector('#answerKey');
+            if (answerKey) answerKey.classList.remove('hidden');
+
+            // 4. HTML 구조 생성 (한글 호환용)
+            // 스타일을 인라인으로 넣거나 style 태그에 포함시켜 HWP에서 깨지지 않게 함
+            const header = `
+                <html xmlns:o='urn:schemas-microsoft-com:office:office' 
+                      xmlns:w='urn:schemas-microsoft-com:office:word' 
+                      xmlns='http://www.w3.org/TR/REC-html40'>
+                <head>
+                    <meta charset='utf-8'>
+                    <title>받아쓰기 문제</title>
+                    <style>
+                        body { font-family: 'Batang', 'Malgun Gothic', serif; font-size: 11pt; line-height: 1.6; }
+                        h2 { font-size: 20pt; text-align: center; margin-bottom: 20px; }
+                        .question-box { margin-bottom: 30px; border-bottom: 1px dashed #ccc; padding-bottom: 20px; }
+                        .q-num { font-weight: bold; font-size: 13pt; color: #6b21a8; margin-right: 10px; }
+                        .q-text { font-weight: bold; font-size: 13pt; }
+                        .box-gray { background-color: #f9fafb; padding: 15px; border: 1px solid #e5e7eb; border-radius: 10px; text-align: center; margin: 10px 0; font-size: 14pt; }
+                        .ans-line { border-bottom: 1px solid black; display: inline-block; width: 200px; height: 20px; }
+                        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-left: 20px; }
+                    </style>
+                </head>
+                <body>
+            `;
+            const footer = "</body></html>";
+            
+            // Tailwind 클래스 제거하고 기본 스타일로 대체하는 작업은 복잡하므로,
+            // HWP가 해석할 수 있는 기본 태그 위주로 내용을 가져옵니다.
+            const sourceHTML = header + clone.innerHTML + footer;
+
+            // 5. 다운로드 트리거
+            const source = 'data:application/vnd.ms-word;charset=utf-8,' + encodeURIComponent(sourceHTML);
+            const fileDownload = document.createElement("a");
+            document.body.appendChild(fileDownload);
+            fileDownload.href = source;
+            fileDownload.download = '받아쓰기_연습문제.hwp';
+            fileDownload.click();
+            document.body.removeChild(fileDownload);
+        };
+
+        // ==========================================
+        // 2. 엑셀 데이터 처리
+        // ==========================================
+        let sourceSentences = []; // 업로드된 문장 저장소
+
+        window.handleExcelUpload = function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            document.getElementById('fileName').innerText = file.name;
+            const reader = new FileReader();
+
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+                    sourceSentences = [];
+                    jsonData.forEach(row => {
+                        if (row.length > 0 && row[0]) {
+                            const text = row[0].toString().trim();
+                            if (text && text !== '문장' && text !== '내용') { // 헤더 제외
+                                sourceSentences.push(text);
+                            }
+                        }
+                    });
+
+                    if (sourceSentences.length === 0) {
+                        document.getElementById('uploadStatus').innerText = "❌ 문장을 찾지 못했습니다.";
+                        sourceSentences = [];
+                    } else {
+                        document.getElementById('uploadStatus').innerText = `✅ ${sourceSentences.length}개 문장 로드됨`;
+                        document.getElementById('uploadStatus').classList.add("text-green-600");
+                    }
+                } catch (err) {
+                    console.error(err);
+                    showMyAlert("엑셀 파일을 읽는 중 오류가 발생했습니다.");
+                }
+                event.target.value = ''; // 초기화
+            };
+            reader.readAsArrayBuffer(file);
+        };
+
+        // ==========================================
+        // 3. 문제 생성 로직
+        // ==========================================
+        const generateBtn = document.getElementById('generateBtn');
+        const emptyState = document.getElementById('emptyState');
+        const quizContent = document.getElementById('quizContent');
+        const questionsList = document.getElementById('questionsList');
+        const answerList = document.getElementById('answerList');
+
+        generateBtn.addEventListener('click', async () => {
+            const model = getGenAIModel();
+            if (!model) return;
+
+            if (sourceSentences.length === 0) {
+                showMyAlert("먼저 엑셀 파일을 업로드해주세요! (A열에 문장이 있어야 합니다)");
+                return;
+            }
+
+            const count = parseInt(document.getElementById('qCount').value);
+            const type = document.getElementById('qType').value;
+
+            // 문장 랜덤 선택
+            if (sourceSentences.length < count) {
+                showMyAlert(`업로드된 문장이 부족합니다. (현재: ${sourceSentences.length}개, 요청: ${count}개)`);
+                return;
+            }
+            
+            // 셔플 후 선택
+            const shuffled = sourceSentences.sort(() => 0.5 - Math.random());
+            const selectedSentences = shuffled.slice(0, count);
+
+            // 로딩 UI
+            const originalBtnHTML = generateBtn.innerHTML;
+            generateBtn.innerHTML = '<div class="loader"></div> <span>AI가 문제를 만드는 중...</span>';
+            generateBtn.disabled = true;
+            emptyState.classList.add('hidden');
+            quizContent.classList.add('hidden');
+
+            try {
+                // 프롬프트 작성
+                let typeInstruction = "";
+                if (type === 'correction') {
+                    typeInstruction = "모든 문제를 [서술형]으로 만드세요. 주어진 문장에서 1학년 수준의 헷갈리는 맞춤법(소리나는 대로 쓰기 등) 1가지를 일부러 틀리게 변형하여 문제로 제시하세요.";
+                } else if (type === 'blank') {
+                    typeInstruction = "모든 문제를 [빈칸형(객관식)]으로 만드세요. 문장의 핵심 단어(맞춤법이 중요한 부분)를 빈칸으로 만들고, 알맞은 단어를 고르는 4지 선다 보기를 만드세요.";
+                } else {
+                    typeInstruction = "문제를 [서술형]과 [빈칸형(객관식)]을 골고루 섞어서(반반 비율) 출제하세요. 서술형은 맞춤법을 1개 틀리게 변형하고, 빈칸형은 맞춤법 자리에 빈칸을 뚫으세요.";
+                }
+
+                const prompt = `
+                    역할: 초등학교 1학년 받아쓰기 전문 선생님.
+                    작업: 아래 제공된 [원본 문장]들을 사용하여 초등 1학년 수준의 맞춤법 문제를 만드세요.
+                    
+                    [출제 조건]
+                    1. 문제 수: 총 ${count}문제
+                    2. ${typeInstruction}
+                    3. **중요:** 서술형 문제의 경우, 원본 문장의 의미를 완전히 바꾸지 말고, **맞춤법만 딱 한 군데** 틀리게 바꾸세요. (예: "종이를 뒤집어서" -> "종이를 디집어서")
+                    4. 빈칸형 문제의 경우, 정답 외의 보기는 1학년 아이들이 헷갈릴 만한 오답으로 구성하세요.
+
+                    [출력 형식]
+                    반드시 아래 JSON 형식으로만 출력하세요. (마크다운 없이)
+                    [
+                        {
+                            "type": "correction", 
+                            "question_text": "다음 문장에서 틀린 낱말을 찾아 바르게 고쳐 써 보세요.",
+                            "problem_sentence": "종이를 디집어서 반으로 접어요.", 
+                            "original_sentence": "종이를 뒤집어서 반으로 접어요.",
+                            "answer": "뒤집어서"
+                        },
+                        {
+                            "type": "blank",
+                            "question_text": "빈칸에 들어갈 알맞은 말을 골라 보세요.",
+                            "problem_sentence": "친구가 집에 (      ).", 
+                            "options": ["① 옴니다", "② 웁니다", "③ 옵니다", "④ 옴미다"],
+                            "answer": "③ 옵니다"
+                        }
+                    ]
+
+                    [원본 문장 목록]
+                    ${JSON.stringify(selectedSentences)}
+                `;
+
+                const result = await model.generateContent(prompt);
+                const response = await result.response;
+                let text = response.text();
+                
+                text = text.replace(/```json/g, '').replace(/```/g, '').trim();
+                const questions = JSON.parse(text);
+
+                // 화면 그리기
+                questionsList.innerHTML = '';
+                answerList.innerHTML = '';
+
+                questions.forEach((q, index) => {
+                    // 1. 문제 영역 생성
+                    const qDiv = document.createElement('div');
+                    qDiv.className = "mb-10 break-inside-avoid border-b border-dashed border-gray-200 pb-6 question-box"; // question-box 클래스 추가 (HWP 스타일용)
+                    
+                    let contentHtml = `
+                        <div class="flex gap-2 mb-3">
+                            <span class="text-xl font-bold text-purple-700 q-num">${index + 1}.</span>
+                            <div class="font-bold text-lg text-gray-800 editable q-text" contenteditable="true">${q.question_text}</div>
+                        </div>
+                    `;
+
+                    if (q.type === 'correction') {
+                        // 서술형 UI
+                        contentHtml += `
+                            <div class="bg-gray-50 p-4 rounded-xl border border-gray-200 mb-4 text-center box-gray">
+                                <p class="text-xl font-medium text-gray-900 tracking-wide editable" contenteditable="true">${q.problem_sentence}</p>
+                            </div>
+                            <div class="flex items-center gap-2 mt-4">
+                                <span class="text-sm text-gray-400 font-bold">정답:</span>
+                                <div class="border-b-2 border-gray-400 w-full h-8 ans-line"></div>
+                            </div>
+                        `;
+                    } else if (q.type === 'blank') {
+                        // 빈칸형 UI
+                        contentHtml += `
+                            <div class="bg-gray-50 p-4 rounded-xl border border-gray-200 mb-4 text-center box-gray">
+                                <p class="text-xl font-medium text-gray-900 tracking-wide editable" contenteditable="true">${q.problem_sentence}</p>
+                            </div>
+                            <div class="grid grid-cols-2 gap-3 mt-2 ml-4 grid-2">
+                                ${q.options.map(opt => `<div class="text-gray-700 editable" contenteditable="true">${opt}</div>`).join('')}
+                            </div>
+                        `;
+                    }
+
+                    qDiv.innerHTML = contentHtml;
+                    questionsList.appendChild(qDiv);
+
+                    // 2. 정답 데이터 추가
+                    const ansDiv = document.createElement('div');
+                    ansDiv.className = "flex gap-2 items-start py-1";
+                    ansDiv.innerHTML = `
+                        <span class="font-bold text-purple-700 w-8">${index + 1}번</span>
+                        <span class="text-gray-700 flex-1 border-b border-gray-100">${q.answer}</span>
+                    `;
+                    answerList.appendChild(ansDiv);
+                });
+
+                quizContent.classList.remove('hidden');
+
+            } catch (error) {
+                console.error("Gen Error:", error);
+                if (error.message.includes("429")) {
+                    showMyAlert("사용량이 많아 잠시 쉬고 있어요. 약 1분 뒤에 다시 시도해주세요! ☕");
+                } else {
+                    showMyAlert("문제 생성 중 오류가 발생했습니다.\n" + error.message);
+                }
+            } finally {
+                generateBtn.innerHTML = originalBtnHTML;
+                generateBtn.disabled = false;
+            }
+        });
+
+    </script>
+</body>
+</html>
